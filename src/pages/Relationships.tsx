@@ -1,61 +1,71 @@
-import { useState } from "react";
-import { Network, AlertTriangle, CheckCircle, Eye, Filter } from "lucide-react";
-
-interface Relationship {
-  id: string;
-  type: "conflict" | "similarity" | "reference" | "precedent";
-  documents: Array<{
-    name: string;
-    section?: string;
-  }>;
-  description: string;
-  severity: "high" | "medium" | "low";
-  status: "active" | "resolved" | "dismissed";
-}
-
-const mockRelationships: Relationship[] = [
-  {
-    id: "1",
-    type: "conflict",
-    documents: [
-      { name: "Privacy Policy v2.1", section: "Data Retention" },
-      { name: "Client Agreement - TechCorp", section: "Confidentiality" },
-    ],
-    description:
-      "Conflicting data retention periods: Privacy policy states 2 years, client agreement specifies 5 years.",
-    severity: "high",
-    status: "active",
-  },
-  {
-    id: "2",
-    type: "similarity",
-    documents: [
-      { name: "Employment Contract - Template", section: "IP Assignment" },
-      { name: "Contractor Agreement - Smith", section: "Work Product" },
-    ],
-    description:
-      "Similar intellectual property clauses with minor variations in scope.",
-    severity: "low",
-    status: "active",
-  },
-  {
-    id: "3",
-    type: "reference",
-    documents: [
-      { name: "Master Service Agreement", section: "Liability" },
-      { name: "SOW - Q4 Project", section: "Risk Allocation" },
-    ],
-    description:
-      "SOW references liability caps from master agreement but with different terms.",
-    severity: "medium",
-    status: "active",
-  },
-];
+import { useState, useEffect } from "react";
+import {
+  Network,
+  AlertTriangle,
+  CheckCircle,
+  Eye,
+  Filter,
+  RefreshCw,
+} from "lucide-react";
+import { conflictApi, type Conflict, ApiError } from "../lib/api";
 
 export function Relationships() {
-  const [relationships] = useState<Relationship[]>(mockRelationships);
+  const [relationships, setRelationships] = useState<Conflict[]>([]);
   const [filterType, setFilterType] = useState<string>("all");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    loadRelationships();
+  }, []);
+
+  const loadRelationships = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const conflicts = await conflictApi.list();
+      setRelationships(conflicts);
+    } catch (err) {
+      console.error("Failed to load relationships:", err);
+      setError(
+        err instanceof ApiError ? err.message : "Failed to load relationships"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStatusUpdate = async (
+    conflictId: string,
+    newStatus: Conflict["status"]
+  ) => {
+    try {
+      setUpdatingStatus((prev) => new Set(prev).add(conflictId));
+      setError(null);
+
+      const updatedConflict = await conflictApi.updateStatus(
+        conflictId,
+        newStatus
+      );
+
+      setRelationships((prev) =>
+        prev.map((rel) => (rel.id === conflictId ? updatedConflict : rel))
+      );
+    } catch (err) {
+      console.error("Failed to update status:", err);
+      setError(
+        err instanceof ApiError ? err.message : "Failed to update status"
+      );
+    } finally {
+      setUpdatingStatus((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(conflictId);
+        return newSet;
+      });
+    }
+  };
 
   const filteredRelationships = relationships.filter((rel) => {
     const typeMatch = filterType === "all" || rel.type === filterType;
@@ -92,17 +102,57 @@ export function Relationships() {
     }
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "active":
+        return "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300";
+      case "resolved":
+        return "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300";
+      case "dismissed":
+        return "bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-300";
+      default:
+        return "bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-300";
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-          Document Relationships
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-2">
-          Visualize connections, conflicts, and patterns across your legal
-          documents
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Document Relationships
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">
+            Visualize connections, conflicts, and patterns across your legal
+            documents
+          </p>
+        </div>
+        <button
+          onClick={loadRelationships}
+          disabled={isLoading}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+            <div className="text-red-600 text-sm font-medium">Error:</div>
+            <div className="text-red-600 text-sm">{error}</div>
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-600 hover:text-red-800"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -200,77 +250,118 @@ export function Relationships() {
           </h2>
         </div>
 
-        <div className="divide-y divide-gray-200 dark:divide-gray-700">
-          {filteredRelationships.map((relationship) => (
-            <div
-              key={relationship.id}
-              className="p-6 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    {getTypeIcon(relationship.type)}
-                    <span className="font-medium text-gray-900 dark:text-white capitalize">
-                      {relationship.type}
-                    </span>
-                    <span
-                      className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(
-                        relationship.severity
-                      )}`}
-                    >
-                      {relationship.severity} severity
-                    </span>
-                  </div>
-
-                  <p className="text-gray-600 dark:text-gray-400 mb-3">
-                    {relationship.description}
-                  </p>
-
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Affected Documents:
-                    </p>
-                    {relationship.documents.map((doc, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"
+        {isLoading ? (
+          <div className="px-6 py-12 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent mx-auto mb-4"></div>
+            <div className="text-gray-600 dark:text-gray-400">
+              Loading relationships...
+            </div>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            {filteredRelationships.map((relationship) => (
+              <div
+                key={relationship.id}
+                className="p-6 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      {getTypeIcon(relationship.type)}
+                      <span className="font-medium text-gray-900 dark:text-white capitalize">
+                        {relationship.type}
+                      </span>
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityColor(
+                          relationship.severity
+                        )}`}
                       >
-                        <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                        <span>{doc.name}</span>
-                        {doc.section && (
-                          <span className="text-gray-500">({doc.section})</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                        {relationship.severity} severity
+                      </span>
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(
+                          relationship.status
+                        )}`}
+                      >
+                        {relationship.status}
+                      </span>
+                    </div>
 
-                <div className="flex items-center gap-2 ml-4">
-                  <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                    View Details
-                  </button>
-                  {relationship.type === "conflict" && (
-                    <button className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300">
-                      Resolve
+                    <p className="text-gray-600 dark:text-gray-400 mb-3">
+                      {relationship.description}
+                    </p>
+
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Affected Documents:
+                      </p>
+                      {relationship.documents.map((doc, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"
+                        >
+                          <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                          <span>{doc.name}</span>
+                          {doc.section && (
+                            <span className="text-gray-500">
+                              ({doc.section})
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 ml-4">
+                    <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                      View Details
                     </button>
-                  )}
+                    {relationship.status === "active" && (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() =>
+                            handleStatusUpdate(relationship.id, "resolved")
+                          }
+                          disabled={updatingStatus.has(relationship.id)}
+                          className="px-3 py-1 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
+                        >
+                          {updatingStatus.has(relationship.id)
+                            ? "..."
+                            : "Resolve"}
+                        </button>
+                        <button
+                          onClick={() =>
+                            handleStatusUpdate(relationship.id, "dismissed")
+                          }
+                          disabled={updatingStatus.has(relationship.id)}
+                          className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:bg-gray-100 transition-colors text-gray-700 dark:text-gray-300"
+                        >
+                          {updatingStatus.has(relationship.id)
+                            ? "..."
+                            : "Dismiss"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
 
-          {filteredRelationships.length === 0 && (
-            <div className="p-12 text-center">
-              <Network className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                No relationships found
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400">
-                Upload more documents to discover connections and patterns
-              </p>
-            </div>
-          )}
-        </div>
+            {filteredRelationships.length === 0 && !isLoading && (
+              <div className="p-12 text-center">
+                <Network className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                  No relationships found
+                </h3>
+                <p className="text-gray-600 dark:text-gray-400">
+                  {relationships.length === 0
+                    ? "Upload more documents to discover connections and patterns"
+                    : "Try adjusting your filters to see more results"}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

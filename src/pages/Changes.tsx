@@ -1,42 +1,32 @@
-import { History, FileText, Clock, User } from "lucide-react";
-
-interface Change {
-  id: string;
-  document: string;
-  type: "created" | "modified" | "analyzed" | "conflict_detected";
-  description: string;
-  timestamp: string;
-  user?: string;
-}
-
-const mockChanges: Change[] = [
-  {
-    id: "1",
-    document: "Privacy Policy v2.1",
-    type: "analyzed",
-    description: "Document processed and added to legal memory",
-    timestamp: "2024-01-20T10:30:00Z",
-    user: "System",
-  },
-  {
-    id: "2",
-    document: "Client Agreement - TechCorp",
-    type: "conflict_detected",
-    description: "Data retention conflict identified with Privacy Policy",
-    timestamp: "2024-01-20T10:32:00Z",
-    user: "System",
-  },
-  {
-    id: "3",
-    document: "Employment Contract - Template",
-    type: "created",
-    description: "New document uploaded and queued for analysis",
-    timestamp: "2024-01-20T09:15:00Z",
-    user: "John Doe",
-  },
-];
+import { useState, useEffect } from "react";
+import { History, FileText, Clock, User, RefreshCw } from "lucide-react";
+import { historyApi, type Change, ApiError } from "../lib/api";
 
 export function Changes() {
+  const [changes, setChanges] = useState<Change[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadRecentChanges();
+  }, []);
+
+  const loadRecentChanges = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const recentChanges = await historyApi.getRecentChanges();
+      setChanges(recentChanges);
+    } catch (err) {
+      console.error("Failed to load changes:", err);
+      setError(
+        err instanceof ApiError ? err.message : "Failed to load changes"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const getChangeIcon = (type: string) => {
     switch (type) {
       case "created":
@@ -73,14 +63,40 @@ export function Changes() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-          Document Changes
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-2">
-          Track document evolution and legal memory updates
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Document Changes
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">
+            Track document evolution and legal memory updates
+          </p>
+        </div>
+        <button
+          onClick={loadRecentChanges}
+          disabled={isLoading}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <div className="text-red-600 text-sm font-medium">Error:</div>
+            <div className="text-red-600 text-sm">{error}</div>
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-600 hover:text-red-800"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Changes Timeline */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
@@ -91,61 +107,70 @@ export function Changes() {
         </div>
 
         <div className="p-6">
-          <div className="space-y-6">
-            {mockChanges.map((change) => (
-              <div key={change.id} className="flex gap-4">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
-                    {getChangeIcon(change.type)}
-                  </div>
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-1">
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {change.document}
-                    </span>
-                    <span
-                      className={`px-2 py-1 text-xs font-medium rounded-full ${getChangeColor(
-                        change.type
-                      )}`}
-                    >
-                      {change.type.replace("_", " ")}
-                    </span>
-                  </div>
-
-                  <p className="text-gray-600 dark:text-gray-400 text-sm mb-2">
-                    {change.description}
-                  </p>
-
-                  <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {formatTime(change.timestamp)}
+          {isLoading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent mx-auto mb-4"></div>
+              <div className="text-gray-600 dark:text-gray-400">
+                Loading changes...
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {changes.map((change) => (
+                <div key={change.id} className="flex gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                      {getChangeIcon(change.type)}
                     </div>
-                    {change.user && (
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="font-medium text-gray-900 dark:text-white">
+                        {change.document}
+                      </span>
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${getChangeColor(
+                          change.type
+                        )}`}
+                      >
+                        {change.type.replace("_", " ")}
+                      </span>
+                    </div>
+
+                    <p className="text-gray-600 dark:text-gray-400 text-sm mb-2">
+                      {change.description}
+                    </p>
+
+                    <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                       <div className="flex items-center gap-1">
-                        <User className="h-3 w-3" />
-                        {change.user}
+                        <Clock className="h-3 w-3" />
+                        {formatTime(change.timestamp)}
                       </div>
-                    )}
+                      {change.user && (
+                        <div className="flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          {change.user}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
-            {mockChanges.length === 0 && (
-              <div className="text-center py-12">
-                <History className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                  No changes yet
-                </h3>
-                <p className="text-gray-600 dark:text-gray-400">
-                  Document changes and updates will appear here
-                </p>
-              </div>
-            )}
-          </div>
+              {changes.length === 0 && !isLoading && (
+                <div className="text-center py-12">
+                  <History className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                    No changes yet
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-400">
+                    Document changes and updates will appear here
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
